@@ -16,16 +16,13 @@ const twitterAuth = {
 };
 
 // PostgreSQL
-const database = new denodb.Database(
+const postgres = new denodb.Database(
   new denodb.PostgresConnector({
-    host: Deno.env.get("POSTGRESQL_HOST") || "",
-    username: Deno.env.get("POSTGRESQL_USERNAME") || "",
-    password: Deno.env.get("POSTGRESQL_PASSWORD") || "",
-    database: Deno.env.get("POSTGRESQL_DATABASE") || "",
+    uri: Deno.env.get("POSTGRESQL_URL") || "",
   }),
 );
-database.link([Version]);
-await database.sync({ drop: false });
+await postgres.link([Version]);
+await postgres.sync({ drop: false });
 
 // Get the latest versions from database
 async function getLatestVersionsFromDatabase(channels: string[]) {
@@ -100,7 +97,7 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
   return newVersions;
 }
 
-let status = {};
+let status = await getLatestVersionsFromDatabase(CHANNELS);
 // Periodically check
 setInterval(async () => {
   console.log(`[${new Date().toISOString()}] Version Check`);
@@ -156,7 +153,7 @@ setInterval(async () => {
 const port: number = parseInt(Deno.env.get("PORT") || "80");
 await serve((): Response => {
   return new Response(
-    JSON.stringify(status),
+    JSON.stringify(status, null, 2),
     {
       status: 200,
       headers: {
