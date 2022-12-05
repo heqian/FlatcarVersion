@@ -2,10 +2,12 @@ import "https://deno.land/x/dotenv/load.ts";
 import { serve } from "https://deno.land/std/http/server.ts";
 import * as twitter from "https://deno.land/x/twitter_api_client/mod.ts";
 import * as denodb from "https://deno.land/x/denodb/mod.ts";
+import { Cron } from "https://deno.land/x/croner/src/croner.js";
 
 import { Version } from "./model.ts";
 
 const CHANNELS = ["alpha", "beta", "stable", "lts"];
+const TIMEOUT_MS = 300000; // 5 minutes
 
 // Twitter
 const twitterAuth = {
@@ -97,9 +99,9 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
   return newVersions;
 }
 
-let status = await getLatestVersionsFromDatabase(CHANNELS);
+let lastCheckTimestamp = 0;
 // Periodically check
-setInterval(async () => {
+new Cron(Deno.env.get("CRON") || "0 * * * * *", async () => {
   console.log(`[${new Date().toISOString()}] Version Check`);
 
   try {
@@ -143,22 +145,19 @@ setInterval(async () => {
     });
 
     // Update status
-    status = storedVersions;
+    lastCheckTimestamp = Date.now();
   } catch (error) {
     console.error(error);
   }
-}, parseInt(Deno.env.get("INTERVAL_MS") || "60000"));
+});
 
 // HTTP server
 const port: number = parseInt(Deno.env.get("PORT") || "80");
 await serve((): Response => {
   return new Response(
-    JSON.stringify(status, null, 2),
+    new Date(lastCheckTimestamp).toUTCString(),
     {
-      status: 200,
-      headers: {
-        "content-type": "application/json",
-      },
+      status: (Date.now() - lastCheckTimestamp > TIMEOUT_MS) ? 503 : 200,
     },
   );
 }, { port: port });
