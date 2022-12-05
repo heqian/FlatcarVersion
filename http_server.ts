@@ -7,7 +7,7 @@ import { Cron } from "https://deno.land/x/croner/src/croner.js";
 import { Version } from "./model.ts";
 
 const CHANNELS = ["alpha", "beta", "stable", "lts"];
-const TIMEOUT_MS = 300000; // 5 minutes
+const TIMEOUT_MS = parseInt(Deno.env.get("TIMEOUT_MS") || "600000"); // 10 minutes
 
 // Twitter
 const twitterAuth = {
