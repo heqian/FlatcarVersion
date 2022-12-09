@@ -1,13 +1,18 @@
 import "https://deno.land/x/dotenv/load.ts";
 import { serve } from "https://deno.land/std/http/server.ts";
 import * as twitter from "https://deno.land/x/twitter_api_client/mod.ts";
-import * as denodb from "https://deno.land/x/denodb/mod.ts";
 import { Cron } from "https://deno.land/x/croner/src/croner.js";
-
-import { Version } from "./model.ts";
 
 const CHANNELS = ["alpha", "beta", "stable", "lts"];
 const TIMEOUT_MS = parseInt(Deno.env.get("TIMEOUT_MS") || "600000"); // 10 minutes
+
+interface Version {
+  channel: string;
+  major: number;
+  minor: number;
+  patch: number;
+  release: Date;
+}
 
 // Twitter
 const twitterAuth = {
@@ -17,22 +22,28 @@ const twitterAuth = {
   tokenSecret: Deno.env.get("TWITTER_ACCESS_TOKEN_SECRET") || "",
 };
 
-// PostgreSQL
-const postgres = new denodb.Database(
-  new denodb.PostgresConnector({
-    uri: Deno.env.get("POSTGRESQL_URL") || "",
-  }),
-);
-await postgres.link([Version]);
-await postgres.sync({ drop: false });
+// ThisDB
+const thisdb = {
+  apiKey: Deno.env.get("THISDB_API_KEY") || "",
+  bucket: Deno.env.get("THISDB_BUCKET") || "",
+};
 
 // Get the latest versions from database
 async function getLatestVersionsFromDatabase(channels: string[]) {
   return await Promise.all(
-    channels.map((channel) =>
-      Version.where({ channel: channel }).orderBy("release", "desc")
-        .first()
-    ),
+    channels.map(async (channel) => {
+      const response = await fetch(
+        `https://api.thisdb.com/v1/${thisdb.bucket}/${channel}`,
+        {
+          headers: {
+            "X-Api-Key": thisdb.apiKey,
+          },
+          method: "GET",
+        },
+      );
+
+      return response.json();
+    }),
   );
 }
 
@@ -71,26 +82,31 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
         release: new Date(details.release_date),
       };
 
-      // Compare which one is newer
-      if (
-        !latestVersion ||
-        !latestVersion.release ||
-        version.release.valueOf() > latestVersion.release.valueOf()
-      ) {
-        // Check if already in database
-        const query = await Version.where(version).get();
-        if (query.length === 0) {
-          // Save new versions to database
-          const result = await Version.create(version);
+      // Always post the version to ThisDB to keep it not expired, even if the versions are the same
+      if (version.release.valueOf() >= latestVersion.release.valueOf()) {
+        // Save new versions to database
+        const response = await fetch(
+          `https://api.thisdb.com/v1/${thisdb.bucket}/${version.channel}`,
+          {
+            headers: {
+              "X-Api-Key": thisdb.apiKey,
+            },
+            method: "POST",
+            body: JSON.stringify(version),
+          },
+        );
+
+        const result = await response.text();
+        if (
+          version.release.valueOf() > latestVersion.release.valueOf() &&
+          result === "OK"
+        ) {
           console.log(
-            `Unknown new version saved: ${result.major}.${result.minor}.${result.patch} (${result.channel})`,
+            `New version saved: ${version.major}.${version.minor}.${version.patch} (${version.channel})`,
           );
-          // Update the latest version
-          newVersions.push(result);
-        } else {
-          console.error(
-            `It is a known version. Why is it new? ${JSON.stringify(version)}`,
-          );
+
+          // Post to Twitter
+          newVersions.push(version);
         }
       }
     }
@@ -99,7 +115,7 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
   return newVersions;
 }
 
-let lastCheckTimestamp = 0;
+let lastCheckTimestamp = Date.now();
 // Periodically check
 new Cron(Deno.env.get("CRON") || "0 * * * * *", async () => {
   console.log(`[${new Date().toISOString()}] Version Check`);
@@ -152,7 +168,7 @@ new Cron(Deno.env.get("CRON") || "0 * * * * *", async () => {
 });
 
 // HTTP server
-const port: number = parseInt(Deno.env.get("PORT") || "80");
+const port: number = parseInt(Deno.env.get("PORT") || "8080");
 await serve((): Response => {
   return new Response(
     new Date(lastCheckTimestamp).toUTCString(),
