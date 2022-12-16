@@ -2,6 +2,7 @@ import "https://deno.land/x/dotenv/load.ts";
 import { serve } from "https://deno.land/std/http/server.ts";
 import * as twitter from "https://deno.land/x/twitter_api_client/mod.ts";
 import { Cron } from "https://deno.land/x/croner/src/croner.js";
+import { default as Mastodon } from "npm:mastodon";
 
 const CHANNELS = ["alpha", "beta", "stable", "lts"];
 const TIMEOUT_MS = parseInt(Deno.env.get("TIMEOUT_MS") || "600000"); // 10 minutes
@@ -21,6 +22,12 @@ const twitterAuth = {
   token: Deno.env.get("TWITTER_ACCESS_TOKEN") || "",
   tokenSecret: Deno.env.get("TWITTER_ACCESS_TOKEN_SECRET") || "",
 };
+
+// Mastodon
+const mastodon = new Mastodon({
+  access_token: Deno.env.get("MASTODON_ACCESS_TOKEN") || "",
+  api_url: Deno.env.get("MASTODON_API_URL") || "",
+});
 
 // ThisDB
 const thisdb = {
@@ -156,7 +163,14 @@ new Cron(Deno.env.get("CRON") || "0 * * * * *", async () => {
       twitter
         .statusUpdate(twitterAuth, { status: tweet })
         .then((result) => {
-          if (result) console.log(tweet);
+          if (result) console.log(`Tweet: ${tweet}`);
+        });
+
+      // Post to Mastodon
+      mastodon
+        .post("statuses", { status: tweet })
+        .then((response: any) => {
+          if (response) console.log(`Toot: ${tweet}`);
         });
     });
 
