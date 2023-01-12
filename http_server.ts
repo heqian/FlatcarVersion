@@ -71,8 +71,8 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
   const newVersions: Version[] = [];
 
   for (let i = 0; i < CHANNELS.length; i++) {
-    const latestVersion = storedVersions[i];
     const versions = onlineVersions[i];
+    let latestVersion = storedVersions[i];
 
     // Online
     const versionNames = Object.keys(versions);
@@ -89,33 +89,34 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
         release: new Date(details.release_date),
       };
 
-      // Always post the version to ThisDB to keep it not expired, even if the versions are the same
-      if (version.release.valueOf() >= latestVersion.release.valueOf()) {
-        // Save new versions to database
-        const response = await fetch(
-          `https://api.thisdb.com/v1/${thisdb.bucket}/${version.channel}`,
-          {
-            headers: {
-              "X-Api-Key": thisdb.apiKey,
-            },
-            method: "POST",
-            body: JSON.stringify(version),
-          },
-        );
-
-        const result = await response.text();
-        if (
-          version.release.valueOf() > latestVersion.release.valueOf() &&
-          result === "OK"
-        ) {
-          console.log(
-            `New version saved: ${version.major}.${version.minor}.${version.patch} (${version.channel})`,
-          );
-
-          // Post to Twitter
-          newVersions.push(version);
-        }
+      if (version.release.valueOf() > latestVersion.release.valueOf()) {
+        latestVersion = version;
       }
+    }
+
+    // Always post the version to ThisDB to keep it not expired, even if the versions are the same
+    const response = await fetch(
+      `https://api.thisdb.com/v1/${thisdb.bucket}/${latestVersion.channel}`,
+      {
+        headers: {
+          "X-Api-Key": thisdb.apiKey,
+        },
+        method: "POST",
+        body: JSON.stringify(latestVersion),
+      },
+    );
+    const result = await response.text();
+    console.log(`ThisDB: ${result}`);
+
+    if (
+      result === "OK" &&
+      JSON.stringify(latestVersion) !== JSON.stringify(storedVersions[i])
+    ) {
+      console.log(
+        `New version saved: ${latestVersion.major}.${latestVersion.minor}.${latestVersion.patch} (${latestVersion.channel})`,
+      );
+      // Post to Twitter
+      newVersions.push(latestVersion);
     }
   }
 
@@ -129,8 +130,12 @@ new Cron(Deno.env.get("CRON") || "0 * * * * *", async () => {
 
   try {
     // Get latest versions
-    const storedVersions = await getLatestVersionsFromDatabase(CHANNELS);
     const onlineVersions = await getLatestVersionsOnline(CHANNELS);
+    const storedVersions = (await getLatestVersionsFromDatabase(CHANNELS))
+      .map((version) => {
+        version.release = new Date(version.release);
+        return version;
+      });
 
     // Compare & update
     const newVersions = await update(storedVersions, onlineVersions);
