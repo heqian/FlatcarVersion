@@ -94,8 +94,17 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
       }
     }
 
-    // Always post the version to ThisDB to keep it not expired, even if the versions are the same
-    const response = await fetch(
+    // Delete, create, and check
+    await fetch(
+      `https://api.thisdb.com/v1/${thisdb.bucket}/${latestVersion.channel}`,
+      {
+        headers: {
+          "X-Api-Key": thisdb.apiKey,
+        },
+        method: "DELETE",
+      },
+    );
+    await fetch(
       `https://api.thisdb.com/v1/${thisdb.bucket}/${latestVersion.channel}`,
       {
         headers: {
@@ -105,18 +114,30 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
         body: JSON.stringify(latestVersion),
       },
     );
-    const result = await response.text();
-    console.log(`ThisDB: ${result}`);
+    const check = await fetch(
+      `https://api.thisdb.com/v1/${thisdb.bucket}/${latestVersion.channel}`,
+      {
+        headers: {
+          "X-Api-Key": thisdb.apiKey,
+        },
+        method: "GET",
+      },
+    ).then((response) => response.json());
 
-    if (
-      result === "OK" &&
-      JSON.stringify(latestVersion) !== JSON.stringify(storedVersions[i])
-    ) {
-      console.log(
-        `New version saved: ${latestVersion.major}.${latestVersion.minor}.${latestVersion.patch} (${latestVersion.channel})`,
+    if (JSON.stringify(check) === JSON.stringify(latestVersion)) {
+      if (JSON.stringify(latestVersion) !== JSON.stringify(storedVersions[i])) {
+        console.log(
+          `New version saved: ${latestVersion.major}.${latestVersion.minor}.${latestVersion.patch} (${latestVersion.channel})`,
+        );
+        // Post to Twitter
+        newVersions.push(latestVersion);
+      }
+    } else {
+      console.error(
+        "ThisDB didn't update:\n",
+        `\t${JSON.stringify(latestVersion)} (expeccted)\n`,
+        `\t${JSON.stringify(check)} (returned)`,
       );
-      // Post to Twitter
-      newVersions.push(latestVersion);
     }
   }
 
