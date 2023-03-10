@@ -94,16 +94,7 @@ async function update(storedVersions: Version[], onlineVersions: any[]) {
       }
     }
 
-    // Delete, create, and check
-    await fetch(
-      `https://api.thisdb.com/v1/${thisdb.bucket}/${latestVersion.channel}`,
-      {
-        headers: {
-          "X-Api-Key": thisdb.apiKey,
-        },
-        method: "DELETE",
-      },
-    );
+    // Update and check
     await fetch(
       `https://api.thisdb.com/v1/${thisdb.bucket}/${latestVersion.channel}`,
       {
